@@ -1,0 +1,98 @@
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local Workspace = game:GetService("Workspace")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+print("[Bot] Client Loaded!")
+
+local function getObjects()
+    local car = nil
+    local ball = nil
+    local camera = Workspace.CurrentCamera
+    if not camera then return nil, nil end
+    local camPos = camera.CFrame.Position
+    local CarSoccer = Workspace:FindFirstChild("CarSoccer")
+    if not CarSoccer then return nil, nil end
+
+    local shortest = 999999
+    for _, obj in ipairs(CarSoccer:GetChildren()) do
+        if obj:IsA("Model") and (obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")) then
+            local dist = (camPos - obj:GetPivot().Position).Magnitude
+            if dist < shortest then
+                shortest = dist
+                car = obj
+            end
+        end
+    end
+
+    local bestScreenDist = 999999
+    local screenCenter = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+    if car then
+        local carPos = car:GetPivot().Position
+        for _, obj in ipairs(CarSoccer:GetDescendants()) do
+            if obj:IsA("BasePart") and not obj:IsDescendantOf(car) then
+                local distFromCar = (carPos - obj.Position).Magnitude
+                if distFromCar > 20 then
+                    local screenPos, onScreen = camera:WorldToViewportPoint(obj.Position)
+                    if onScreen then
+                        local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                        if screenDist < 400 and screenDist < bestScreenDist then
+                            bestScreenDist = screenDist
+                            ball = obj
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return car, ball
+end
+
+local wPressed = false
+local aPressed = false
+local dPressed = false
+
+local function setKey(key, state, isPressed)
+    if state == isPressed then return state end
+    pcall(function() VirtualInputManager:SendKeyEvent(isPressed, key, false, game) end)
+    pcall(function() if isPressed then keypress(key) else keyrelease(key) end end)
+    return isPressed
+end
+
+-- Throttle the loop to 30Hz to stop server spam
+local tick = 0
+RunService.Heartbeat:Connect(function()
+    tick = tick + 1
+    if tick % 2 ~= 0 then return end 
+
+    local car, ball = getObjects()
+    if not car or not ball then return end
+    
+    local carPos = car:GetPivot().Position
+    local ballPos = ball.Position
+
+    -- Calculate where the ball is relative to the car's front
+    local carLook = car:GetPivot().LookVector
+    local carRight = car:GetPivot().RightVector
+    
+    local toBall = (ballPos - carPos).Unit
+    
+    -- Dot product tells us if the ball is in front, left, or right
+    local forwardDot = carLook:Dot(toBall)
+    local rightDot = carRight:Dot(toBall)
+
+    wPressed = setKey(Enum.KeyCode.W, wPressed, true)
+    
+    -- If the ball is to the right (rightDot > 0)
+    if rightDot > 0.1 then
+        dPressed = setKey(Enum.KeyCode.D, dPressed, true)
+        aPressed = setKey(Enum.KeyCode.A, aPressed, false)
+    -- If the ball is to the left
+    elseif rightDot < -0.1 then
+        aPressed = setKey(Enum.KeyCode.A, aPressed, true)
+        dPressed = setKey(Enum.KeyCode.D, dPressed, false)
+    else
+        aPressed = setKey(Enum.KeyCode.A, aPressed, false)
+        dPressed = setKey(Enum.KeyCode.D, dPressed, false)
+    end
+end)
